@@ -1,0 +1,23 @@
+[toolchain]
+package_manager = "yarn"
+
+[features]
+resolution = true
+seeds = false
+skip-lint = false
+
+[programs.localnet]
+solana_contracts = "41f3Bi7jwTJ8Q3qr29AtaLZh3193AArY1nsgoTrEyRYx"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "localnet"
+wallet = "/Users/arstan/.config/solana/id.json"
+
+[scripts]
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 'tests/**/*.ts' --skip-build --skip-deploy --skip-local-validator"
+
+[test]
+startup_wait = 5000
