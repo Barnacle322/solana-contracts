@@ -174,7 +174,6 @@ describe("amm_voting", () => {
           poll: pollKeypair.publicKey,
           authority: admin.publicKey,
           tokenMint: mint,
-          systemProgram: SystemProgram.programId,
         })
         .signers([admin, pollKeypair])
         .rpc();
@@ -216,8 +215,6 @@ describe("amm_voting", () => {
           userTokenAccount: user1TokenAccount,
           poolVault: poolVaultAccount,
           feeVault: feeVault,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
         })
         .signers([user1, vote1Keypair])
         .rpc();
@@ -259,8 +256,6 @@ describe("amm_voting", () => {
           userTokenAccount: user2TokenAccount,
           poolVault: poolVaultAccount,
           feeVault: feeVault,
-          tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
         })
         .signers([user2, vote2Keypair])
         .rpc();
@@ -308,9 +303,7 @@ describe("amm_voting", () => {
           vote: vote1Keypair.publicKey,
           user: user1.publicKey,
           userTokenAccount: user1TokenAccount,
-          poolVault: poolVaultAccount,
-          poolAuthority: poolAuthority,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          poolVault: poolVaultAccount
         })
         .signers([user1])
         .rpc();
@@ -338,9 +331,7 @@ describe("amm_voting", () => {
           vote: vote2Keypair.publicKey,
           user: user2.publicKey,
           userTokenAccount: user2TokenAccount,
-          poolVault: poolVaultAccount,
-          poolAuthority: poolAuthority,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          poolVault: poolVaultAccount
         })
         .signers([user2])
         .rpc();
@@ -363,9 +354,7 @@ describe("amm_voting", () => {
           vote: vote1Keypair.publicKey,
           user: user1.publicKey,
           userTokenAccount: user1TokenAccount,
-          poolVault: poolVaultAccount,
-          poolAuthority: poolAuthority,
-          tokenProgram: TOKEN_PROGRAM_ID,
+          poolVault: poolVaultAccount
         })
         .signers([user1])
         .rpc();
@@ -401,7 +390,6 @@ describe("amm_voting", () => {
         poll: newPollKeypair.publicKey,
         authority: admin.publicKey,
         tokenMint: mint,
-        systemProgram: SystemProgram.programId,
       })
       .signers([admin, newPollKeypair])
       .rpc();
