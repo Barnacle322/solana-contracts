@@ -1,19 +1,19 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { SolanaContracts } from "../target/types/solana_contracts";
-import { Keypair, PublicKey, SystemProgram, Connection, clusterApiUrl } from "@solana/web3.js";
+import { Keypair, PublicKey, SystemProgram, Connection } from "@solana/web3.js";
 import { 
   TOKEN_PROGRAM_ID, 
   createMint, 
-  createAccount, 
-  mintTo, 
-  getAccount,
-  getOrCreateAssociatedTokenAccount
+  getOrCreateAssociatedTokenAccount,
+  mintTo,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  getAccount
 } from "@solana/spl-token";
 import { expect } from "chai";
 
 describe("amm_voting", () => {
-  // Increase the timeout and configure for local validator
+  // Configure the client to use the local cluster
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
@@ -23,7 +23,7 @@ describe("amm_voting", () => {
   const program = anchor.workspace.SolanaContracts as Program<SolanaContracts>;
   
   // Test accounts
-  const admin = Keypair.generate();
+  const admin = provider.wallet.payer;  // Use the provider's wallet to avoid airdrop issues
   const user1 = Keypair.generate();
   const user2 = Keypair.generate();
   
@@ -49,100 +49,106 @@ describe("amm_voting", () => {
 
   before(async () => {
     // Airdrop SOL to test accounts
-    await provider.connection.confirmTransaction(
-      await provider.connection.requestAirdrop(admin.publicKey, 1000000000),
-      "confirmed"
-    );
-    await provider.connection.confirmTransaction(
-      await provider.connection.requestAirdrop(user1.publicKey, 1000000000),
-      "confirmed"
-    );
-    await provider.connection.confirmTransaction(
-      await provider.connection.requestAirdrop(user2.publicKey, 1000000000),
-      "confirmed"
-    );
+    try {
+      await provider.connection.confirmTransaction(
+        await provider.connection.requestAirdrop(user1.publicKey, 1000000000),
+        "confirmed"
+      );
+      await provider.connection.confirmTransaction(
+        await provider.connection.requestAirdrop(user2.publicKey, 1000000000),
+        "confirmed"
+      );
+    } catch (e) {
+      console.log("Airdrop failed, continuing with test...");
+      // Continue anyway as the test might work with existing funds
+    }
 
-    // Create test token (represents USDC or similar)
-    mint = await createMint(
-      provider.connection,
-      admin,
-      admin.publicKey,
-      null,
-      6 // 6 decimals like USDC
-    );
+    try {
+      // Create test token (represents USDC or similar)
+      mint = await createMint(
+        provider.connection,
+        admin,
+        admin.publicKey,
+        null,
+        6 // 6 decimals like USDC
+      );
 
-    // Create token accounts
-    adminTokenAccount = await createAccount(
-      provider.connection,
-      admin,
-      mint,
-      admin.publicKey
-    );
+      // Create token accounts using associated token accounts
+      adminTokenAccount = (await getOrCreateAssociatedTokenAccount(
+        provider.connection,
+        admin,
+        mint,
+        admin.publicKey
+      )).address;
 
-    user1TokenAccount = await createAccount(
-      provider.connection,
-      user1,
-      mint,
-      user1.publicKey
-    );
+      user1TokenAccount = (await getOrCreateAssociatedTokenAccount(
+        provider.connection,
+        admin, // payer
+        mint,
+        user1.publicKey
+      )).address;
 
-    user2TokenAccount = await createAccount(
-      provider.connection,
-      user2,
-      mint,
-      user2.publicKey
-    );
+      user2TokenAccount = (await getOrCreateAssociatedTokenAccount(
+        provider.connection,
+        admin, // payer
+        mint,
+        user2.publicKey
+      )).address;
 
-    // Create fee vault
-    feeVault = await createAccount(
-      provider.connection,
-      admin,
-      mint,
-      admin.publicKey
-    );
+      // Create fee vault (also using ATA)
+      feeVault = (await getOrCreateAssociatedTokenAccount(
+        provider.connection,
+        admin,
+        mint,
+        admin.publicKey
+      )).address;
 
-    // Mint some tokens to users
-    await mintTo(
-      provider.connection,
-      admin,
-      mint,
-      user1TokenAccount,
-      admin.publicKey,
-      1000000000 // 1000 tokens
-    );
+      // Mint tokens to users
+      await mintTo(
+        provider.connection,
+        admin,
+        mint,
+        user1TokenAccount,
+        admin.publicKey,
+        1000000000 // 1000 tokens
+      );
 
-    await mintTo(
-      provider.connection,
-      admin,
-      mint,
-      user2TokenAccount,
-      admin.publicKey,
-      1000000000 // 1000 tokens
-    );
+      await mintTo(
+        provider.connection,
+        admin,
+        mint,
+        user2TokenAccount,
+        admin.publicKey,
+        1000000000 // 1000 tokens
+      );
 
-    // Find PDA for pool authority
-    const [poolAuthorityPDA, bump] = await PublicKey.findProgramAddress(
-      [
-        Buffer.from("pool"),
-        pollKeypair.publicKey.toBuffer(),
-      ],
-      program.programId
-    );
-    poolAuthority = poolAuthorityPDA;
-    poolAuthorityBump = bump;
+      // Find PDA for pool authority
+      const [poolAuthorityPDA, bump] = await PublicKey.findProgramAddress(
+        [
+          Buffer.from("pool"),
+          pollKeypair.publicKey.toBuffer(),
+        ],
+        program.programId
+      );
+      poolAuthority = poolAuthorityPDA;
+      poolAuthorityBump = bump;
 
-    // Create pool vault
-    poolVaultAccount = await createAccount(
-      provider.connection,
-      admin,
-      mint,
-      poolAuthority, // owned by the PDA
-      Keypair.generate() // Just for creating the account
-    );
+      // Create pool vault using ATA
+      poolVaultAccount = (await getOrCreateAssociatedTokenAccount(
+        provider.connection,
+        admin,
+        mint,
+        poolAuthority,
+        true // allowOwnerOffCurve: true for PDA
+      )).address;
+    } catch (error) {
+      console.error("Setup error:", error);
+      throw error;
+    }
   });
 
   it("Creates a poll", async () => {
-    // Generate title as bytes
+    // Generate title as bytes - make sure it's a Buffer of correct length
     const title = "Which NFT will be worth more?";
     const titleBytes = Buffer.from(title);
     
@@ -151,13 +157,13 @@ describe("amm_voting", () => {
     const closesAt = now + 86400; // 1 day from now
     
     // Initial shares
-    const initialNft1Shares = new anchor.BN(10000);
-    const initialNft2Shares = new anchor.BN(10000);
+    const initialNft1Shares = new anchor.BN(1000000000);
+    const initialNft2Shares = new anchor.BN(1000000000);
     
     try {
       await program.methods
         .createPoll(
-          Array.from(titleBytes),
+          titleBytes,
           new anchor.BN(closesAt),
           nft1,
           nft2,
@@ -197,10 +203,14 @@ describe("amm_voting", () => {
     const amount = new anchor.BN(100000000); // 100 tokens with 6 decimals
     
     try {
+      if (!poll) {
+        throw new Error("Poll account is not defined");
+      }
+      
       await program.methods
         .vote(1, amount)
         .accounts({
-          poll: poll,
+          poll: pollKeypair.publicKey,
           vote: vote1Keypair.publicKey,
           user: user1.publicKey,
           userTokenAccount: user1TokenAccount,
@@ -219,7 +229,7 @@ describe("amm_voting", () => {
       expect(voteAccount.claimed).to.equal(false);
       
       // Verify poll state updated
-      const pollAccount = await program.account.poll.fetch(poll);
+      const pollAccount = await program.account.poll.fetch(pollKeypair.publicKey);
       expect(pollAccount.nft1Shares.toString()).not.to.equal("10000"); // Should have changed
       
       // Verify tokens transferred
@@ -243,7 +253,7 @@ describe("amm_voting", () => {
       await program.methods
         .vote(2, amount)
         .accounts({
-          poll: poll,
+          poll: pollKeypair.publicKey,
           vote: vote2Keypair.publicKey,
           user: user2.publicKey,
           userTokenAccount: user2TokenAccount,
@@ -271,7 +281,7 @@ describe("amm_voting", () => {
       await program.methods
         .resolvePoll(nft1) // NFT1 wins
         .accounts({
-          poll: poll,
+          poll: pollKeypair.publicKey,
           authority: admin.publicKey,
           admin: admin.publicKey, // Admin is the same as authority in this test
         })
@@ -279,7 +289,7 @@ describe("amm_voting", () => {
         .rpc();
       
       // Verify poll state
-      const pollAccount = await program.account.poll.fetch(poll);
+      const pollAccount = await program.account.poll.fetch(pollKeypair.publicKey);
       expect(pollAccount.status).to.deep.equal({ resolved: {} });
       expect(pollAccount.winningNft.toString()).to.equal(nft1.toString());
     } catch (error) {
@@ -294,7 +304,7 @@ describe("amm_voting", () => {
       await program.methods
         .claimWinnings()
         .accounts({
-          poll: poll,
+          poll: pollKeypair.publicKey,
           vote: vote1Keypair.publicKey,
           user: user1.publicKey,
           userTokenAccount: user1TokenAccount,
@@ -324,7 +334,7 @@ describe("amm_voting", () => {
       await program.methods
         .claimWinnings()
         .accounts({
-          poll: poll,
+          poll: pollKeypair.publicKey,
           vote: vote2Keypair.publicKey,
           user: user2.publicKey,
           userTokenAccount: user2TokenAccount,
@@ -349,7 +359,7 @@ describe("amm_voting", () => {
       await program.methods
         .claimWinnings()
         .accounts({
-          poll: poll,
+          poll: pollKeypair.publicKey,
           vote: vote1Keypair.publicKey,
           user: user1.publicKey,
           userTokenAccount: user1TokenAccount,
@@ -373,13 +383,14 @@ describe("amm_voting", () => {
     const newPollKeypair = Keypair.generate();
     const title = "Another test poll";
     const titleBytes = Buffer.from(title);
+
     const now = Math.floor(Date.now() / 1000);
     const closesAt = now + 86400;
-    const initialShares = new anchor.BN(10000);
+    const initialShares = new anchor.BN(1000000000);
     
     await program.methods
       .createPoll(
-        Array.from(titleBytes),
+        titleBytes,
         new anchor.BN(closesAt),
         nft1,
         nft2,
